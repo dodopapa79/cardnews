@@ -37,6 +37,13 @@ button:disabled{opacity:.5;cursor:wait}
 .ps.on{border-color:#1e4fa3;box-shadow:0 0 0 3px rgba(30,79,163,.18)}
 .ps i{display:block;height:46px;border-radius:8px;margin-bottom:6px;position:relative;border:1px solid rgba(0,0,0,.1)}
 .ps i b{position:absolute;right:8px;bottom:8px;width:14px;height:14px;border-radius:50%}
+.ph{margin:30px 0 6px;font-size:18px}
+.pc{background:#fff;border-radius:16px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:14px}
+.pc h3{margin:0 0 10px;font-size:16px;color:#1e4fa3}
+.pc input,.pc textarea{margin-bottom:8px}
+.pc .btns{display:flex;gap:8px;flex-wrap:wrap}
+.pc .btns button{background:#eaf0fa;color:#1e4fa3;padding:9px 14px;font-size:14px}
+.lk{font-size:12px;color:#64748b;margin-bottom:10px;word-break:break-all}
 </style>
 </head>
 <body>
@@ -68,8 +75,11 @@ button:disabled{opacity:.5;cursor:wait}
 </section>
 
 <section id="out" hidden>
-  <div class="bar"><b>완성! 글자는 아래에서 수정할 수 있어요</b><button id="all">전체 저장 (zip)</button></div>
+  <div class="bar"><b>완성! 카드 글자와 게시글 문구를 수정할 수 있어요</b><button id="all">전체 저장 (zip)</button></div>
   <div id="grid"></div>
+  <h2 class="ph">게시글 문구 (플랫폼별)</h2>
+  <p class="hint" style="margin:0 0 12px">플랫폼마다 제목과 본문이 따로 만들어져요. 고친 뒤 복사해서 붙여넣으세요.</p>
+  <div id="posts"></div>
 </section>
 </main>
 
@@ -77,7 +87,7 @@ button:disabled{opacity:.5;cursor:wait}
 const $=s=>document.querySelector(s);
 const MODELS=['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-2.5-flash-lite'];
 const W=1080,SAVE=['key','bname','burl','n','ratio'];
-let H=1350,slides=[],cv=[],preset=0;
+let H=1350,slides=[],cv=[],preset=0,posts={};
 
 /* ---------- 프리셋 ---------- */
 const bright=(n,cbg,bg)=>({n,cbg,bg,cink:'#0f1b33',csub:'#475569',cacc:'#1e4fa3',cline:'rgba(30,79,163,.18)',
@@ -111,7 +121,12 @@ function makePrompt(src,isUrl,n){
 - 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1~2문장 70자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
 - ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(블로그에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
 - 쉬운 한국어, 이모지 금지, 한 장에 한 가지 메시지만.
-JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}]}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+- 게시글 문구(posts): 플랫폼마다 title과 body를 각각 따로 작성하세요. 블로그 링크는 쓰지 마세요(자동으로 붙습니다).
+  instagram: title 30자 이내 후킹 한 줄 / body 핵심 요약 3~4줄(줄바꿈 사용) 뒤에 줄을 바꿔 해시태그 8~10개
+  facebook: title 40자 이내 / body 글 요약 5~6문장을 짧은 문단으로
+  tiktok: title 50자 이내 / body 2~3줄 요약 뒤에 해시태그 4~6개
+  youtube: title 60자 이내(검색될 키워드 포함) / body 요약 3~4문장 뒤에 해시태그 3~5개
+JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}],"posts":{"instagram":{"title":"","body":""},"facebook":{"title":"","body":""},"tiktok":{"title":"","body":""},"youtube":{"title":"","body":""}}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
 }
 async function gen(key,src,isUrl,n){
   let err='';
@@ -142,7 +157,7 @@ async function gen(key,src,isUrl,n){
     let a=(o.slides||[]).filter(s=>s&&s.title);
     if(a.length<2){err='카드를 만들지 못했어요. 다시 시도해 주세요.';continue}
     if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
-    return a;
+    return {slides:a,posts:o.posts||{}};
   }
   throw new Error('생성에 실패했어요: '+err+'\n(무료 한도 초과일 수 있어요. 잠시 후 다시 시도해 주세요.)');
 }
@@ -257,7 +272,7 @@ async function show(){
     ['title','body',k2].forEach(k=>{const e=d.querySelector(`[data-k="${k}"]`);if(e)e.value=s[k]||''});
     cv.push(d.querySelector('canvas'));g.append(d);
   });
-  $('#out').hidden=false;redraw();msg('');
+  $('#out').hidden=false;redraw();showPosts();msg('');
   $('#out').scrollIntoView({behavior:'smooth'});
 }
 function dl(i){
@@ -294,8 +309,38 @@ $('#presets').addEventListener('click',e=>{
   preset=+b.dataset.p;save();presetButtons();if(slides.length)redraw();
 });
 presetButtons();
-['bname','burl'].forEach(id=>$('#'+id).addEventListener('input',()=>{save();if(slides.length)redraw()}));
+['bname','burl'].forEach(id=>$('#'+id).addEventListener('input',()=>{save();if(slides.length){redraw();updHint()}}));
 $('#ratio').onchange=()=>{H=+$('#ratio').value;save();if(slides.length)redraw()};
+/* ---------- 게시글 문구 (제목 + 본문, 복사) ---------- */
+const PLAT=[['instagram','인스타그램'],['facebook','페이스북 페이지'],['tiktok','틱톡'],['youtube','유튜브']];
+const fullUrl=()=>{const u=$('#burl').value.trim();return u?(/^https?:\/\//.test(u)?u:'https://'+u):''};
+const linkText=()=>fullUrl()?'자세한 내용은 블로그에서 확인하세요\n'+fullUrl():'';
+const hintText=()=>fullUrl()?'복사할 때 본문 끝에 블로그 주소가 자동으로 붙어요: '+fullUrl():'블로그 주소를 입력하면 복사할 때 본문 끝에 자동으로 붙어요.';
+const updHint=()=>document.querySelectorAll('#posts .lk').forEach(e=>e.textContent=hintText());
+function showPosts(){
+  const mid=slides.slice(1,-1).map(s=>s.title+(s.body?' - '+s.body:'')).join('\n');
+  const box=$('#posts');box.innerHTML='';
+  PLAT.forEach(([k,name])=>{
+    const p=(posts&&posts[k])||{};
+    const d=document.createElement('div');d.className='pc';
+    d.innerHTML=`<h3>${name}</h3><input data-f="t" placeholder="제목"><textarea data-f="b" rows="8" placeholder="본문"></textarea><div class="lk"></div><div class="btns"><button data-c="t">제목 복사</button><button data-c="b">본문 복사</button><button data-c="a">제목+본문 복사</button></div>`;
+    d.querySelector('[data-f="t"]').value=p.title||slides[0].title;
+    d.querySelector('[data-f="b"]').value=p.body||mid;
+    box.append(d);
+  });
+  updHint();
+}
+async function doCopy(t,btn){
+  try{await navigator.clipboard.writeText(t)}catch(e){const a=document.createElement('textarea');a.value=t;document.body.append(a);a.select();document.execCommand('copy');a.remove()}
+  const o=btn.textContent;btn.textContent='복사됨!';setTimeout(()=>btn.textContent=o,1200);
+}
+$('#posts').addEventListener('click',e=>{
+  const b=e.target.closest('[data-c]');if(!b)return;
+  const d=b.closest('.pc'),t=d.querySelector('[data-f="t"]').value.trim(),body=d.querySelector('[data-f="b"]').value.trim(),l=linkText();
+  const full=body+(l?'\n\n'+l:'');
+  doCopy(b.dataset.c==='t'?t:b.dataset.c==='b'?full:t+'\n\n'+full,b);
+});
+
 $('#go').onclick=async()=>{
   const key=$('#key').value.trim(),src=$('#src').value.trim(),n=+$('#n').value;
   if(!key)return msg('Gemini API 키를 입력해 주세요.');
@@ -303,7 +348,7 @@ $('#go').onclick=async()=>{
   const isUrl=/^https?:\/\/\S+$/.test(src);
   if(isUrl&&!$('#burl').value)$('#burl').value=src.split(/[?#]/)[0];
   save();$('#go').disabled=true;msg('글을 읽고 카드뉴스를 만드는 중이에요… (10~30초)');
-  try{slides=await gen(key,src,isUrl,n);await show()}catch(e){msg(e.message||String(e))}
+  try{const r=await gen(key,src,isUrl,n);slides=r.slides;posts=r.posts;await show()}catch(e){msg(e.message||String(e))}
   $('#go').disabled=false;
 };
 </script>
