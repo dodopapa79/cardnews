@@ -44,6 +44,10 @@ button:disabled{opacity:.5;cursor:wait}
 .pc .btns{display:flex;gap:8px;flex-wrap:wrap}
 .pc .btns button{background:#eaf0fa;color:#1e4fa3;padding:9px 14px;font-size:14px}
 .lk{font-size:12px;color:#64748b;margin-bottom:10px;word-break:break-all}
+.th{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px}
+.th canvas{border-radius:10px;display:block;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+#tw{width:min(100%,520px);height:auto}
+#ts{width:200px;height:auto}
 </style>
 </head>
 <body>
@@ -76,6 +80,18 @@ button:disabled{opacity:.5;cursor:wait}
 
 <section id="out" hidden>
   <div class="bar"><b>완성! 카드 글자와 게시글 문구를 수정할 수 있어요</b><button id="all">전체 저장 (zip)</button></div>
+  <div class="pc">
+    <h3>대표 썸네일 (블로그용)</h3>
+    <div class="th"><canvas id="tw"></canvas><canvas id="ts"></canvas></div>
+    <div class="hint" style="margin:0 0 12px">오른쪽처럼 가운데를 정사각형으로 잘라도 글자가 모두 보여요.</div>
+    <div class="row">
+      <div><label>분류</label><input id="th_tag" placeholder="예: 정부혜택"></div>
+      <div><label>제목 1줄</label><input id="th_line1"></div>
+      <div><label>제목 2줄</label><input id="th_line2"></div>
+      <div><label>부제</label><input id="th_sub"></div>
+    </div>
+    <div class="btns" style="margin-top:12px"><button id="twd">16:9 저장</button><button id="tsd">정사각형 저장</button></div>
+  </div>
   <div id="grid"></div>
   <h2 class="ph" style="display:flex;align-items:center;gap:12px">게시글 문구 (플랫폼별) <button id="rp" style="padding:8px 12px;font-size:13px">다시 만들기</button></h2>
   <p class="hint" style="margin:0 0 12px">플랫폼마다 제목과 본문이 따로 만들어져요. 고친 뒤 복사해서 붙여넣으세요.</p>
@@ -87,7 +103,7 @@ button:disabled{opacity:.5;cursor:wait}
 const $=s=>document.querySelector(s);
 const MODELS=['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-2.5-flash-lite'];
 const W=1080,SAVE=['key','bname','burl','n','ratio'];
-let H=1350,slides=[],cv=[],preset=0,posts={},last={};
+let H=1350,slides=[],cv=[],preset=0,posts={},last={},thumb={tag:'',line1:'',line2:'',sub:''};
 
 /* ---------- 프리셋 ---------- */
 const bright=(n,cbg,bg)=>({n,cbg,bg,cink:'#0f1b33',csub:'#475569',cacc:'#1e4fa3',cline:'rgba(30,79,163,.18)',
@@ -121,7 +137,8 @@ function makePrompt(src,isUrl,n){
 - 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1~2문장 70자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
 - ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(아래 링크에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
 - 쉬운 한국어, 이모지 금지, 한 장에 한 가지 메시지만.
-JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}]}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+- thumb(블로그 대표 썸네일 문구): tag(분류 키워드 2~6자, 예: 정부혜택), line1과 line2(제목을 의미 단위로 두 줄로 나눈 것, 각 줄 11자 이내), sub(한 줄 부제 22자 이내)
+JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}],"thumb":{"tag":"","line1":"","line2":"","sub":""}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
 }
 function postsPrompt(src,isUrl,sl){
   const cards=sl.map((s,i)=>`${i+1}. ${s.title}${s.body?' - '+s.body:''}`).join('\n');
@@ -179,11 +196,22 @@ async function ask(key,prompt,isUrl){
   }
   throw new Error('생성에 실패했어요: '+err+'\n(무료 한도 초과일 수 있어요. 잠시 후 다시 시도해 주세요.)');
 }
+function split2(t){
+  const w=String(t||'').split(' ');if(w.length<2)return[w[0]||'',''];
+  let best=1,bd=1e9;
+  for(let i=1;i<w.length;i++){const d=Math.abs(w.slice(0,i).join(' ').length-w.slice(i).join(' ').length);if(d<bd){bd=d;best=i}}
+  return[w.slice(0,best).join(' '),w.slice(best).join(' ')];
+}
+function normThumb(t,a){
+  t=t||{};const c=a[0],[f1,f2]=split2(c.title);
+  return{tag:String(t.tag||c.label||'').trim(),line1:String(t.line1||f1).trim(),line2:String(t.line2||f2).trim(),sub:String(t.sub||c.body||'').trim()};
+}
 async function gen(key,src,isUrl,n){
   const o=await ask(key,makePrompt(src,isUrl,n),isUrl);
   let a=(o.slides||[]).filter(s=>s&&s.title);
   if(a.length<2)throw new Error('카드를 만들지 못했어요. 다시 시도해 주세요.');
   if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
+  thumb=normThumb(o.thumb,a);
   return a;
 }
 
@@ -283,9 +311,49 @@ function draw(i){
 }
 const redraw=()=>slides.forEach((_,i)=>draw(i));
 
+/* ---------- 대표 썸네일 (1280x720 기준, 정사각형 크롭 안전) ---------- */
+function drawThumb(c,mode){
+  const sq=mode==='sq',k=sq?1.5:1;
+  c.width=sq?1080:1280;c.height=sq?1080:720;
+  const x=c.getContext('2d');
+  x.setTransform(k,0,0,k,sq?-280*k:0,0); // 정사각형: 가운데 720px만 사용
+  const g=x.createLinearGradient(0,0,1280,720);
+  g.addColorStop(0,'#1e3a8a');g.addColorStop(.55,'#13265f');g.addColorStop(1,'#030712');
+  x.fillStyle=g;x.fillRect(0,0,1280,720);
+  x.textBaseline='top';x.textAlign='left';
+  const SAFE=640,t=thumb;
+  const head=[t.line1,t.line2].filter(Boolean).join('\n');
+  const hf=fit(x,head,800,80,44,SAFE,2),hl=hf.l.filter(Boolean);
+  x.font=F(800,hf.s);
+  const widest=Math.max(1,...hl.map(l=>x.measureText(l).width));
+  const sf=fit(x,t.sub||'',600,34,24,SAFE,1);
+  const ph=t.tag?66:0,lh=hf.s*1.3,subH=t.sub?sf.s*1.4:0;
+  const total=ph+(ph?24:0)+hl.length*lh+(subH?26:0)+subH;
+  let y=(720-total)/2;
+  const bx=(1280-widest)/2;
+  if(t.tag){
+    x.font=F(700,28);const pw=x.measureText(t.tag).width+48;
+    x.fillStyle='rgba(4,9,24,.88)';rr(x,bx,y,pw,ph,10);x.fill();
+    x.fillStyle='#60a5fa';x.fillText(t.tag,bx+24,y+(ph-28)/2);
+    y+=ph+24;
+  }
+  x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=14;x.shadowOffsetY=4;
+  x.font=F(800,hf.s);x.fillStyle='#ffffff';
+  hl.forEach((l,i)=>x.fillText(l,bx,y+i*lh+(lh-hf.s)/2));
+  y+=hl.length*lh+26;
+  if(t.sub){x.font=F(600,sf.s);x.textAlign='center';x.fillText(sf.l[0]||'',640,y+(sf.s*1.4-sf.s)/2)}
+  x.shadowColor='transparent';x.textAlign='left';
+}
+const drawThumbs=()=>{drawThumb($('#tw'),'wide');drawThumb($('#ts'),'sq')};
+function thumbUI(){['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).value=thumb[k]||'');drawThumbs()}
+['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).addEventListener('input',e=>{thumb[k]=e.target.value;drawThumbs()}));
+const saveC=(c,n)=>c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)});
+$('#twd').onclick=()=>saveC($('#tw'),'thumbnail_16x9.png');
+$('#tsd').onclick=()=>saveC($('#ts'),'thumbnail_square.png');
+
 /* ---------- 화면 ---------- */
 async function show(){
-  const all=slides.map(s=>Object.values(s).join('')).join('')+'아래 링크에서 확인하세요 옆으로 넘겨보세요 ↓0123456789/';
+  const all=slides.map(s=>Object.values(s).join('')).join('')+Object.values(thumb).join('')+'아래 링크에서 확인하세요 옆으로 넘겨보세요 ↓0123456789/';
   try{await Promise.all([500,600,700,800,900].map(w=>document.fonts.load(`${w} 40px Pretendard`,all)))}catch(e){}
   const g=$('#grid');g.innerHTML='';cv=[];
   slides.forEach((s,i)=>{
@@ -297,7 +365,7 @@ async function show(){
     ['title','body',k2].forEach(k=>{const e=d.querySelector(`[data-k="${k}"]`);if(e)e.value=s[k]||''});
     cv.push(d.querySelector('canvas'));g.append(d);
   });
-  $('#out').hidden=false;redraw();msg('');
+  $('#out').hidden=false;redraw();thumbUI();msg('');
   $('#out').scrollIntoView({behavior:'smooth'});
 }
 function dl(i){
@@ -320,6 +388,8 @@ $('#all').onclick=async()=>{
       const blob=await new Promise(r=>cv[i].toBlob(r));
       z.file('cardnews_'+String(i+1).padStart(2,'0')+'.png',blob);
     }
+    z.file('thumbnail_16x9.png',await new Promise(r=>$('#tw').toBlob(r)));
+    z.file('thumbnail_square.png',await new Promise(r=>$('#ts').toBlob(r)));
     const out=await z.generateAsync({type:'blob'});
     const a=document.createElement('a');a.href=URL.createObjectURL(out);a.download='cardnews.zip';a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
