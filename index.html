@@ -77,7 +77,7 @@ button:disabled{opacity:.5;cursor:wait}
 <section id="out" hidden>
   <div class="bar"><b>완성! 카드 글자와 게시글 문구를 수정할 수 있어요</b><button id="all">전체 저장 (zip)</button></div>
   <div id="grid"></div>
-  <h2 class="ph">게시글 문구 (플랫폼별)</h2>
+  <h2 class="ph" style="display:flex;align-items:center;gap:12px">게시글 문구 (플랫폼별) <button id="rp" style="padding:8px 12px;font-size:13px">다시 만들기</button></h2>
   <p class="hint" style="margin:0 0 12px">플랫폼마다 제목과 본문이 따로 만들어져요. 고친 뒤 복사해서 붙여넣으세요.</p>
   <div id="posts"></div>
 </section>
@@ -87,7 +87,7 @@ button:disabled{opacity:.5;cursor:wait}
 const $=s=>document.querySelector(s);
 const MODELS=['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-2.5-flash-lite'];
 const W=1080,SAVE=['key','bname','burl','n','ratio'];
-let H=1350,slides=[],cv=[],preset=0,posts={};
+let H=1350,slides=[],cv=[],preset=0,posts={},last={};
 
 /* ---------- 프리셋 ---------- */
 const bright=(n,cbg,bg)=>({n,cbg,bg,cink:'#0f1b33',csub:'#475569',cacc:'#1e4fa3',cline:'rgba(30,79,163,.18)',
@@ -119,19 +119,37 @@ function makePrompt(src,isUrl,n){
 - 글에 없는 내용은 절대 지어내지 마세요. 글을 읽을 수 없으면 {"error":"읽을 수 없음"} 만 출력하세요.
 - 1장 cover: label(주제 키워드 8자 이내), title(호기심을 끄는 제목 18자 이내), body(한 줄 소개 25자 이내)
 - 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1~2문장 70자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
-- ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(블로그에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
+- ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(아래 링크에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
 - 쉬운 한국어, 이모지 금지, 한 장에 한 가지 메시지만.
-- 게시글 문구(posts): 플랫폼마다 title과 body를 각각 따로 작성하세요. 블로그 링크는 쓰지 마세요(자동으로 붙습니다).
-  instagram: title 30자 이내 후킹 한 줄 / body 핵심 요약 3~4줄(줄바꿈 사용) 뒤에 줄을 바꿔 해시태그 8~10개
-  facebook: title 40자 이내 / body 글 요약 5~6문장을 짧은 문단으로
-  tiktok: title 50자 이내 / body 2~3줄 요약 뒤에 해시태그 4~6개
-  youtube: title 60자 이내(검색될 키워드 포함) / body 요약 3~4문장 뒤에 해시태그 3~5개
-JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}],"posts":{"instagram":{"title":"","body":""},"facebook":{"title":"","body":""},"tiktok":{"title":"","body":""},"youtube":{"title":"","body":""}}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}]}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
 }
-async function gen(key,src,isUrl,n){
+function postsPrompt(src,isUrl,sl){
+  const cards=sl.map((s,i)=>`${i+1}. ${s.title}${s.body?' - '+s.body:''}`).join('\n');
+  return `당신은 SNS 카피라이터입니다. ${isUrl?`블로그 글(${src})을 읽고`:'아래 블로그 글을 바탕으로'} 플랫폼별 게시글 문구(제목+본문)를 쓰세요.
+이미 만든 카드뉴스 내용 (참고만 하고 문장을 그대로 반복하지 마세요):
+${cards}
+
+공통 원칙:
+- 카드 문장을 복사하지 말고, 글 전체를 읽은 사람이 직접 쓴 것처럼 새로 쓰세요. 카드에 없는 구체적인 팁·이유·예시를 글에서 골라 더하세요.
+- 구성: 1) 후킹(공감되는 상황, 질문, 의외의 사실로 시작) 2) 핵심 요점 정리 3) 마무리(저장·공유·댓글을 부르는 한 줄)
+- 글에 없는 사실이나 수치는 지어내지 마세요. 과장·광고 문구 금지.
+- 부드러운 구어체(~해요, ~예요). 한 줄은 짧게, 문단 사이에는 반드시 빈 줄(줄바꿈 2번)을 넣으세요.
+- 요점은 ①②③ 기호로 구분하고 한 항목에 한두 줄로 쓰세요. 이모지는 0~2개만 쓰세요.
+- 블로그 링크 안내 문구는 쓰지 마세요(자동으로 붙습니다).
+플랫폼별 형식:
+- instagram: title 30자 이내 후킹 한 줄 / body: 후킹 1~2줄 → 빈 줄 → 요점 ①②③ → 빈 줄 → 마무리 한 줄 → 빈 줄 → 해시태그 8~10개
+- facebook: title 40자 이내 / body: 공감 도입 2~3문장 → 빈 줄 → 요점 3개를 각각 별도 문단으로(문단마다 1~2문장, 사이에 빈 줄) → 빈 줄 → 마무리 질문 한 줄. 한 덩어리로 이어 쓰지 마세요.
+- tiktok: title 40자 이내 짧은 후킹 / body: 요점 2~3줄 + 질문 한 줄 → 빈 줄 → 해시태그 4~6개
+- youtube: title 60자 이내(핵심 키워드 포함, 클릭을 부르되 과장 금지) / body: 핵심 요약 2문장 → 빈 줄 → 요점 ①②③ → 빈 줄 → 마무리 한 줄 → 빈 줄 → 해시태그 3~5개
+줄바꿈이 필요한 곳은 JSON 문자열 안에서 줄바꿈 기호(백슬래시 n)로 표현하세요.
+JSON만 출력: {"posts":{"instagram":{"title":"","body":""},"facebook":{"title":"","body":""},"tiktok":{"title":"","body":""},"youtube":{"title":"","body":""}}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+}
+// 문자열 안의 실제 줄바꿈 때문에 JSON이 깨졌을 때 고쳐서 읽기
+const fixJson=t=>{let o='',q=0,e=0;for(const c of t){if(q){if(e){o+=c;e=0}else if(c==='\\'){o+=c;e=1}else if(c==='"'){o+=c;q=0}else o+=c==='\n'?'\\n':(c==='\r'||c==='\t')?' ':c}else{o+=c;if(c==='"')q=1}}return o};
+async function ask(key,prompt,isUrl){
   let err='';
   for(const m of MODELS){
-    const body={contents:[{parts:[{text:makePrompt(src,isUrl,n)}]}],generationConfig:{temperature:.7}};
+    const body={contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.8}};
     if(isUrl)body.tools=[{url_context:{}}];else body.generationConfig.responseMimeType='application/json';
     let r,j;
     try{
@@ -152,14 +170,21 @@ async function gen(key,src,isUrl,n){
         throw new Error('이 주소의 글을 읽지 못했어요.\n글 내용을 복사해서 붙여넣어 주세요.');
     }
     let o;
-    try{o=JSON.parse(text.replace(/```json|```/g,'').match(/\{[\s\S]*\}/)[0])}catch(e){err='결과를 해석하지 못했어요. 다시 시도해 주세요.';continue}
+    try{
+      const t0=text.replace(/```json|```/g,'').match(/\{[\s\S]*\}/)[0];
+      try{o=JSON.parse(t0)}catch(e2){o=JSON.parse(fixJson(t0))}
+    }catch(e){err='결과를 해석하지 못했어요. 다시 시도해 주세요.';continue}
     if(o.error)throw new Error('글을 읽을 수 없었어요. 글 내용을 복사해서 붙여넣어 주세요.');
-    let a=(o.slides||[]).filter(s=>s&&s.title);
-    if(a.length<2){err='카드를 만들지 못했어요. 다시 시도해 주세요.';continue}
-    if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
-    return {slides:a,posts:o.posts||{}};
+    return o;
   }
   throw new Error('생성에 실패했어요: '+err+'\n(무료 한도 초과일 수 있어요. 잠시 후 다시 시도해 주세요.)');
+}
+async function gen(key,src,isUrl,n){
+  const o=await ask(key,makePrompt(src,isUrl,n),isUrl);
+  let a=(o.slides||[]).filter(s=>s&&s.title);
+  if(a.length<2)throw new Error('카드를 만들지 못했어요. 다시 시도해 주세요.');
+  if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
+  return a;
 }
 
 /* ---------- 카드 그리기 ---------- */
@@ -245,7 +270,7 @@ function draw(i){
     const by=H-P-250,bh=120;
     x.fillStyle=T.btnBg;rr(x,P,by,M,bh,60);x.fill();
     x.fillStyle=T.btnText;x.font=F(800,42);x.textAlign='center';
-    x.fillText('블로그에서 자세히 보기  →',W/2,by+(bh-42)/2);
+    x.fillText('아래 링크에서 확인하세요  ↓',W/2,by+(bh-42)/2);
     if(url){
       let fs=42;x.font=F(800,fs);
       while(x.measureText(url).width>M&&fs>26){fs-=2;x.font=F(800,fs)}
@@ -260,7 +285,7 @@ const redraw=()=>slides.forEach((_,i)=>draw(i));
 
 /* ---------- 화면 ---------- */
 async function show(){
-  const all=slides.map(s=>Object.values(s).join('')).join('')+'블로그에서 자세히 보기 옆으로 넘겨보세요 0123456789/';
+  const all=slides.map(s=>Object.values(s).join('')).join('')+'아래 링크에서 확인하세요 옆으로 넘겨보세요 ↓0123456789/';
   try{await Promise.all([500,600,700,800,900].map(w=>document.fonts.load(`${w} 40px Pretendard`,all)))}catch(e){}
   const g=$('#grid');g.innerHTML='';cv=[];
   slides.forEach((s,i)=>{
@@ -272,7 +297,7 @@ async function show(){
     ['title','body',k2].forEach(k=>{const e=d.querySelector(`[data-k="${k}"]`);if(e)e.value=s[k]||''});
     cv.push(d.querySelector('canvas'));g.append(d);
   });
-  $('#out').hidden=false;redraw();showPosts();msg('');
+  $('#out').hidden=false;redraw();msg('');
   $('#out').scrollIntoView({behavior:'smooth'});
 }
 function dl(i){
@@ -312,9 +337,23 @@ presetButtons();
 ['bname','burl'].forEach(id=>$('#'+id).addEventListener('input',()=>{save();if(slides.length){redraw();updHint()}}));
 $('#ratio').onchange=()=>{H=+$('#ratio').value;save();if(slides.length)redraw()};
 /* ---------- 게시글 문구 (제목 + 본문, 복사) ---------- */
+async function makePosts(){
+  const b=$('#rp');b.disabled=true;
+  $('#posts').innerHTML='<p class="hint">게시글 문구를 만드는 중이에요… (10~30초)</p>';
+  let err='';
+  try{const o=await ask(last.key,postsPrompt(last.src,last.isUrl,slides),last.isUrl);posts=o.posts||o}
+  catch(e){posts={};err=e.message||String(e)}
+  showPosts();
+  if(err){const p=document.createElement('p');p.className='hint';
+    p.textContent='AI 문구를 만들지 못해 카드 내용으로 대신 채웠어요. "다시 만들기"를 눌러 보세요. ('+err.split('\n')[0]+')';
+    $('#posts').prepend(p)}
+  b.disabled=false;
+}
+$('#rp').onclick=()=>{if(slides.length&&last.key)makePosts()};
+const norm=t=>String(t||'').replace(/\\n/g,'\n').trim();
 const PLAT=[['instagram','인스타그램'],['facebook','페이스북 페이지'],['tiktok','틱톡'],['youtube','유튜브']];
 const fullUrl=()=>{const u=$('#burl').value.trim();return u?(/^https?:\/\//.test(u)?u:'https://'+u):''};
-const linkText=()=>fullUrl()?'자세한 내용은 블로그에서 확인하세요\n'+fullUrl():'';
+const linkText=()=>fullUrl()?'자세한 내용은 아래 링크에서 확인하세요\n'+fullUrl():'';
 const hintText=()=>fullUrl()?'복사할 때 본문 끝에 블로그 주소가 자동으로 붙어요: '+fullUrl():'블로그 주소를 입력하면 복사할 때 본문 끝에 자동으로 붙어요.';
 const updHint=()=>document.querySelectorAll('#posts .lk').forEach(e=>e.textContent=hintText());
 function showPosts(){
@@ -323,9 +362,9 @@ function showPosts(){
   PLAT.forEach(([k,name])=>{
     const p=(posts&&posts[k])||{};
     const d=document.createElement('div');d.className='pc';
-    d.innerHTML=`<h3>${name}</h3><input data-f="t" placeholder="제목"><textarea data-f="b" rows="8" placeholder="본문"></textarea><div class="lk"></div><div class="btns"><button data-c="t">제목 복사</button><button data-c="b">본문 복사</button><button data-c="a">제목+본문 복사</button></div>`;
-    d.querySelector('[data-f="t"]').value=p.title||slides[0].title;
-    d.querySelector('[data-f="b"]').value=p.body||mid;
+    d.innerHTML=`<h3>${name}</h3><input data-f="t" placeholder="제목"><textarea data-f="b" rows="12" placeholder="본문"></textarea><div class="lk"></div><div class="btns"><button data-c="t">제목 복사</button><button data-c="b">본문 복사</button><button data-c="a">제목+본문 복사</button></div>`;
+    d.querySelector('[data-f="t"]').value=norm(p.title)||slides[0].title;
+    d.querySelector('[data-f="b"]').value=norm(p.body)||mid;
     box.append(d);
   });
   updHint();
@@ -348,7 +387,7 @@ $('#go').onclick=async()=>{
   const isUrl=/^https?:\/\/\S+$/.test(src);
   if(isUrl&&!$('#burl').value)$('#burl').value=src.split(/[?#]/)[0];
   save();$('#go').disabled=true;msg('글을 읽고 카드뉴스를 만드는 중이에요… (10~30초)');
-  try{const r=await gen(key,src,isUrl,n);slides=r.slides;posts=r.posts;await show()}catch(e){msg(e.message||String(e))}
+  try{slides=await gen(key,src,isUrl,n);posts={};last={key,src,isUrl};await show();await makePosts()}catch(e){msg(e.message||String(e))}
   $('#go').disabled=false;
 };
 </script>
