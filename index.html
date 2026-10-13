@@ -85,12 +85,13 @@ button:disabled{opacity:.5;cursor:wait}
     <div class="th"><canvas id="tw"></canvas><canvas id="ts"></canvas></div>
     <div class="hint" style="margin:0 0 12px">오른쪽처럼 가운데를 정사각형으로 잘라도 글자가 모두 보여요.</div>
     <div class="row">
+      <div style="flex:1 1 100%"><label>글 제목 (썸네일 파일 이름으로 사용돼요)</label><input id="th_title"></div>
       <div><label>분류</label><input id="th_tag" placeholder="예: 정부혜택"></div>
       <div><label>제목 1줄</label><input id="th_line1"></div>
       <div><label>제목 2줄</label><input id="th_line2"></div>
       <div><label>부제</label><input id="th_sub"></div>
     </div>
-    <div class="btns" style="margin-top:12px"><button id="twd">16:9 저장</button><button id="tsd">정사각형 저장</button></div>
+    <div class="btns" style="margin-top:12px"><button id="twd">16:9 저장</button><button id="tsd">정사각형 저장</button><button id="tbd">둘 다 저장</button></div>
   </div>
   <div id="grid"></div>
   <h2 class="ph" style="display:flex;align-items:center;gap:12px">게시글 문구 (플랫폼별) <button id="rp" style="padding:8px 12px;font-size:13px">다시 만들기</button></h2>
@@ -103,7 +104,7 @@ button:disabled{opacity:.5;cursor:wait}
 const $=s=>document.querySelector(s);
 const MODELS=['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-2.5-flash-lite'];
 const W=1080,SAVE=['key','bname','burl','n','ratio'];
-let H=1350,slides=[],cv=[],preset=0,posts={},last={},thumb={tag:'',line1:'',line2:'',sub:''};
+let H=1350,slides=[],cv=[],preset=0,posts={},last={},thumb={tag:'',line1:'',line2:'',sub:''},postTitle='';
 
 /* ---------- 프리셋 ---------- */
 const bright=(n,cbg,bg)=>({n,cbg,bg,cink:'#0f1b33',csub:'#475569',cacc:'#1e4fa3',cline:'rgba(30,79,163,.18)',
@@ -137,8 +138,9 @@ function makePrompt(src,isUrl,n){
 - 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1~2문장 70자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
 - ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(아래 링크에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
 - 쉬운 한국어, 이모지 금지, 한 장에 한 가지 메시지만.
-- thumb(블로그 대표 썸네일 문구): tag(분류 키워드 2~6자, 예: 정부혜택), line1과 line2(제목을 의미 단위로 두 줄로 나눈 것, 각 줄 11자 이내), sub(한 줄 부제 22자 이내)
-JSON만 출력: {"slides":[{"label":"","title":"","body":"","highlight":""}],"thumb":{"tag":"","line1":"","line2":"","sub":""}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+- postTitle: 블로그 글의 실제 제목입니다. 글(또는 페이지)에서 제목으로 쓰인 문장을 그대로 옮기세요. 붙여넣은 글의 첫 줄이 제목이면 그 줄을 쓰고, 제목을 찾을 수 없으면 글 내용을 대표하는 제목을 만드세요.
+- thumb(블로그 대표 썸네일 문구): tag(분류 키워드 2~6자, 예: 정부혜택), line1과 line2(postTitle을 의미 단위로 두 줄로 나눈 것, 각 줄 11자 이내. 제목이 길면 핵심만 남기되 원래 표현을 최대한 유지), sub(한 줄 부제 22자 이내)
+JSON만 출력: {"postTitle":"","slides":[{"label":"","title":"","body":"","highlight":""}],"thumb":{"tag":"","line1":"","line2":"","sub":""}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
 }
 function postsPrompt(src,isUrl,sl){
   const cards=sl.map((s,i)=>`${i+1}. ${s.title}${s.body?' - '+s.body:''}`).join('\n');
@@ -203,7 +205,7 @@ function split2(t){
   return[w.slice(0,best).join(' '),w.slice(best).join(' ')];
 }
 function normThumb(t,a){
-  t=t||{};const c=a[0],[f1,f2]=split2(c.title);
+  t=t||{};const c=a[0],[f1,f2]=split2(postTitle||c.title);
   return{tag:String(t.tag||c.label||'').trim(),line1:String(t.line1||f1).trim(),line2:String(t.line2||f2).trim(),sub:String(t.sub||c.body||'').trim()};
 }
 async function gen(key,src,isUrl,n){
@@ -211,6 +213,7 @@ async function gen(key,src,isUrl,n){
   let a=(o.slides||[]).filter(s=>s&&s.title);
   if(a.length<2)throw new Error('카드를 만들지 못했어요. 다시 시도해 주세요.');
   if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
+  postTitle=String(o.postTitle||'').trim();
   thumb=normThumb(o.thumb,a);
   return a;
 }
@@ -345,11 +348,15 @@ function drawThumb(c,mode){
   x.shadowColor='transparent';x.textAlign='left';
 }
 const drawThumbs=()=>{drawThumb($('#tw'),'wide');drawThumb($('#ts'),'sq')};
-function thumbUI(){['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).value=thumb[k]||'');drawThumbs()}
+function thumbUI(){['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).value=thumb[k]||'');$('#th_title').value=postTitle;drawThumbs()}
+$('#th_title').addEventListener('input',e=>{postTitle=e.target.value});
 ['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).addEventListener('input',e=>{thumb[k]=e.target.value;drawThumbs()}));
 const saveC=(c,n)=>c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)});
-$('#twd').onclick=()=>saveC($('#tw'),'thumbnail_16x9.png');
-$('#tsd').onclick=()=>saveC($('#ts'),'thumbnail_square.png');
+const safeName=t=>String(t||'').replace(/[\\\/:*?"<>|\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,60);
+const thumbName=()=>safeName(postTitle||[thumb.line1,thumb.line2].filter(Boolean).join(' '))||'thumbnail';
+$('#twd').onclick=()=>saveC($('#tw'),thumbName()+'.png');
+$('#tsd').onclick=()=>saveC($('#ts'),thumbName()+'_정사각형.png');
+$('#tbd').onclick=async()=>{$('#twd').click();await new Promise(r=>setTimeout(r,500));$('#tsd').click()};
 
 /* ---------- 화면 ---------- */
 async function show(){
@@ -388,8 +395,8 @@ $('#all').onclick=async()=>{
       const blob=await new Promise(r=>cv[i].toBlob(r));
       z.file('cardnews_'+String(i+1).padStart(2,'0')+'.png',blob);
     }
-    z.file('thumbnail_16x9.png',await new Promise(r=>$('#tw').toBlob(r)));
-    z.file('thumbnail_square.png',await new Promise(r=>$('#ts').toBlob(r)));
+    z.file(thumbName()+'.png',await new Promise(r=>$('#tw').toBlob(r)));
+    z.file(thumbName()+'_정사각형.png',await new Promise(r=>$('#ts').toBlob(r)));
     const out=await z.generateAsync({type:'blob'});
     const a=document.createElement('a');a.href=URL.createObjectURL(out);a.download='cardnews.zip';a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
