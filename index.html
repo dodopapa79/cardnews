@@ -69,8 +69,9 @@ button:disabled{opacity:.5;cursor:wait}
     <div><label>블로그 주소 (마지막 카드에 표시)</label><input id="burl" placeholder="예: blog.naver.com/아이디"></div>
   </div>
   <div class="row">
-    <div><label>카드 장수</label><select id="n"><option>5</option><option selected>6</option><option>7</option><option>8</option></select></div>
-    <div><label>비율</label><select id="ratio"><option value="1350">인스타 4:5</option><option value="1080">정사각 1:1</option></select></div>
+    <div><label>카드 장수</label><select id="n"><option>4</option><option>5</option><option selected>6</option><option>7</option></select></div>
+    <div><label>비율</label><select id="ratio"><option value="1920">틱톡 9:16</option><option value="1350" selected>인스타·페이스북 4:5</option><option value="1080">유튜브·정사각 1:1</option></select></div>
+    <div><label>마지막 카드에 주소</label><select id="showurl"><option value="0">안 넣기 (권장)</option><option value="1">넣기</option></select></div>
   </div>
   <label>프리셋 (카드 색 스타일)</label>
   <div id="presets" class="presets"></div>
@@ -103,7 +104,7 @@ button:disabled{opacity:.5;cursor:wait}
 <script>
 const $=s=>document.querySelector(s);
 const MODELS=['gemini-3.1-flash-lite','gemini-2.5-flash','gemini-2.5-flash-lite'];
-const W=1080,SAVE=['key','bname','burl','n','ratio'];
+const W=1080,SAVE=['key','bname','burl','n','ratio','showurl'];
 let H=1350,slides=[],cv=[],preset=0,posts={},last={},thumb={tag:'',line1:'',line2:'',sub:''},postTitle='';
 
 /* ---------- 프리셋 ---------- */
@@ -135,12 +136,13 @@ function makePrompt(src,isUrl,n){
 규칙:
 - 글에 없는 내용은 절대 지어내지 마세요. 글을 읽을 수 없으면 {"error":"읽을 수 없음"} 만 출력하세요.
 - 1장 cover: label(주제 키워드 8자 이내), title(호기심을 끄는 제목 18자 이내), body(한 줄 소개 25자 이내)
-- 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1~2문장 70자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
-- ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(아래 링크에서 자세한 내용을 확인하도록 안내하는 한 문장, 30자 이내)
+- 2~${n-1}장 content: title(핵심 메시지 20자 이내), body(쉬운 설명 1문장 50자 이내), points(글에 있는 구체적 정보 2~3개: 대상·금액·서류·기한·방법 등, 각 30자 이내), highlight(강조할 숫자나 핵심어 8자 이내, 없으면 빈 문자열)
+- ${n}장 cta: title(글 전체를 한 문장으로 요약, 25자 이내), body(독자가 댓글로 답하고 싶어지는 질문 한 문장, 30자 이내), source(글에 근거가 있을 때만 출처 기관명, 예: 정부24. 없으면 빈 문자열)
+- 카드 글에는 웹사이트 주소, 링크, '블로그 방문' 같은 문구를 절대 쓰지 마세요.
 - 쉬운 한국어, 이모지 금지, 한 장에 한 가지 메시지만.
 - postTitle: 블로그 글의 실제 제목입니다. 글(또는 페이지)에서 제목으로 쓰인 문장을 그대로 옮기세요. 붙여넣은 글의 첫 줄이 제목이면 그 줄을 쓰고, 제목을 찾을 수 없으면 글 내용을 대표하는 제목을 만드세요.
 - thumb(블로그 대표 썸네일 문구): tag(분류 키워드 2~6자, 예: 정부혜택), line1과 line2(postTitle을 의미 단위로 두 줄로 나눈 것, 각 줄 11자 이내. 제목이 길면 핵심만 남기되 원래 표현을 최대한 유지), sub(한 줄 부제 22자 이내)
-JSON만 출력: {"postTitle":"","slides":[{"label":"","title":"","body":"","highlight":""}],"thumb":{"tag":"","line1":"","line2":"","sub":""}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
+JSON만 출력: {"postTitle":"","slides":[{"label":"","title":"","body":"","points":[""],"highlight":"","source":""}],"thumb":{"tag":"","line1":"","line2":"","sub":""}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
 }
 function postsPrompt(src,isUrl,sl){
   const cards=sl.map((s,i)=>`${i+1}. ${s.title}${s.body?' - '+s.body:''}`).join('\n');
@@ -154,11 +156,11 @@ ${cards}
 - 글에 없는 사실이나 수치는 지어내지 마세요. 과장·광고 문구 금지.
 - 부드러운 구어체(~해요, ~예요). 한 줄은 짧게, 문단 사이에는 반드시 빈 줄(줄바꿈 2번)을 넣으세요.
 - 요점은 ①②③ 기호로 구분하고 한 항목에 한두 줄로 쓰세요. 이모지는 0~2개만 쓰세요.
-- 블로그 링크 안내 문구는 쓰지 마세요(자동으로 붙습니다).
+- 블로그 링크 안내 문구는 쓰지 마세요(자동으로 붙습니다). 마지막 줄은 독자에게 묻는 질문으로 끝내 댓글을 유도하세요.
 플랫폼별 형식:
-- instagram: title 30자 이내 후킹 한 줄 / body: 후킹 1~2줄 → 빈 줄 → 요점 ①②③ → 빈 줄 → 마무리 한 줄 → 빈 줄 → 해시태그 8~10개
+- instagram: title 30자 이내 후킹 한 줄 / body: 후킹 1~2줄 → 빈 줄 → 요점 ①②③ → 빈 줄 → 마무리 한 줄 → 빈 줄 → 해시태그 5~8개
 - facebook: title 40자 이내 / body: 공감 도입 2~3문장 → 빈 줄 → 요점 3개를 각각 별도 문단으로(문단마다 1~2문장, 사이에 빈 줄) → 빈 줄 → 마무리 질문 한 줄. 한 덩어리로 이어 쓰지 마세요.
-- tiktok: title 40자 이내 짧은 후킹 / body: 요점 2~3줄 + 질문 한 줄 → 빈 줄 → 해시태그 4~6개
+- tiktok: title 40자 이내 짧은 후킹 / body: 요점 2~3줄 + 질문 한 줄 → 빈 줄 → 해시태그 3~5개
 - youtube: title 60자 이내(핵심 키워드 포함, 클릭을 부르되 과장 금지) / body: 핵심 요약 2문장 → 빈 줄 → 요점 ①②③ → 빈 줄 → 마무리 한 줄 → 빈 줄 → 해시태그 3~5개
 줄바꿈이 필요한 곳은 JSON 문자열 안에서 줄바꿈 기호(백슬래시 n)로 표현하세요.
 JSON만 출력: {"posts":{"instagram":{"title":"","body":""},"facebook":{"title":"","body":""},"tiktok":{"title":"","body":""},"youtube":{"title":"","body":""}}}${isUrl?'':'\n\n[글]\n'+src.slice(0,12000)}`;
@@ -213,6 +215,7 @@ async function gen(key,src,isUrl,n){
   let a=(o.slides||[]).filter(s=>s&&s.title);
   if(a.length<2)throw new Error('카드를 만들지 못했어요. 다시 시도해 주세요.');
   if(a.length>n)a=[...a.slice(0,n-1),a[a.length-1]];
+  a.forEach(x=>{x.points=Array.isArray(x.points)?x.points.map(String).filter(Boolean).slice(0,3):[]});
   postTitle=String(o.postTitle||'').trim();
   thumb=normThumb(o.thumb,a);
   return a;
@@ -284,10 +287,19 @@ function draw(i){
       txt(s.highlight,900,150,64,1,1.1,T.acc,1,44);
       txt(s.title,800,72,50,3,1.25,ink,1,s.highlight?20:44);
       txt(s.body,500,42,32,8,1.6,sub,1,40);
+      (s.points||[]).filter(t=>String(t).trim()).forEach((t,k)=>{
+        const sz=Math.round(40*sc);x.font=F(600,sz);
+        const l=wrap(x,t,M-72),h=Math.max(l.length,1)*sz*1.45;
+        bl.push({h,gap:k?22:40,d:y=>{
+          x.fillStyle=T.acc;x.beginPath();x.arc(P+24,y+sz*.72,22,0,7);x.fill();
+          x.font=F(800,26);x.fillStyle=T.bg;x.textAlign='center';x.fillText(String(k+1),P+24,y+sz*.72-13);x.textAlign='left';
+          x.font=F(600,sz);x.fillStyle=ink;l.forEach((q,i)=>x.fillText(q,P+72,y+i*sz*1.45+sz*.225));
+        }});
+      });
     }
     return bl;
   };
-  const top=P+90,bottom=cta?H-P-290:H-P-50,avail=bottom-top;
+  const tall=H>1500?260:0,top=P+90,bottom=(cta?H-P-290:H-P-50)-tall,avail=bottom-top;
   let sc=1,bl,total;
   for(;;){
     bl=mk(sc);total=bl.reduce((a,b,k)=>a+b.h+(k?b.gap*sc:0),0);
@@ -296,19 +308,22 @@ function draw(i){
   let y=top+Math.max(0,Math.min((avail-total)/2,solid?999:160));
   bl.forEach((b,k)=>{if(k)y+=b.gap*sc;b.d(y);y+=b.h});
 
-  if(cover){x.textAlign='right';x.font=F(600,30);x.fillStyle=T.cink;x.globalAlpha=.85;x.fillText('옆으로 넘겨보세요 →',W-P,H-P-50);x.globalAlpha=1;x.textAlign='left'}
-  if(cta){ // 블로그 안내 버튼 + 주소 (크고 굵게)
-    const by=H-P-250,bh=120;
+  if(cover){x.textAlign='right';x.font=F(600,30);x.fillStyle=T.cink;x.globalAlpha=.85;x.fillText('옆으로 넘겨보세요 →',W-P,H-P-50-tall);x.globalAlpha=1;x.textAlign='left'}
+  if(cta){ // 저장·댓글 유도 + 출처 (주소는 선택)
+    const by=H-P-250-tall,bh=120,showUrl=$('#showurl').value==='1'&&url;
     x.fillStyle=T.btnBg;rr(x,P,by,M,bh,60);x.fill();
-    x.fillStyle=T.btnText;x.font=F(800,42);x.textAlign='center';
-    x.fillText('아래 링크에서 확인하세요  ↓',W/2,by+(bh-42)/2);
-    if(url){
+    x.fillStyle=T.btnText;x.font=F(800,showUrl?42:40);x.textAlign='center';
+    x.fillText(showUrl?'아래 링크에서 확인하세요  ↓':'저장해 두고 댓글로 물어보세요',W/2,by+(bh-42)/2);
+    let yy=by+bh+30;
+    if(showUrl){
       let fs=42;x.font=F(800,fs);
       while(x.measureText(url).width>M&&fs>26){fs-=2;x.font=F(800,fs)}
       let u=url;while(x.measureText(u).width>M&&u.length>8)u=u.slice(0,-2);
       if(u!==url)u=u.trimEnd()+'…';
-      x.fillStyle=T.cink;x.fillText(u,W/2,by+bh+28);
+      x.fillStyle=T.cink;x.fillText(u,W/2,yy);yy+=64;
     }
+    const src=String(s.source||'').trim().replace(/^출처:?\s*/,'');
+    if(src){x.font=F(500,26);x.fillStyle=T.csub;x.globalAlpha=.85;x.fillText('출처: '+src,W/2,yy);x.globalAlpha=1}
     x.textAlign='left';
   }
 }
@@ -351,6 +366,7 @@ const drawThumbs=()=>{drawThumb($('#tw'),'wide');drawThumb($('#ts'),'sq')};
 function thumbUI(){['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).value=thumb[k]||'');$('#th_title').value=postTitle;drawThumbs()}
 $('#th_title').addEventListener('input',e=>{postTitle=e.target.value});
 ['tag','line1','line2','sub'].forEach(k=>$('#th_'+k).addEventListener('input',e=>{thumb[k]=e.target.value;drawThumbs()}));
+const rlab=()=>H===1920?'9x16':H===1350?'4x5':'1x1';
 const saveC=(c,n)=>c.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)});
 const safeName=t=>String(t||'').replace(/[\\\/:*?"<>|\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,60);
 const thumbName=()=>safeName(postTitle||[thumb.line1,thumb.line2].filter(Boolean).join(' '))||'thumbnail';
@@ -365,11 +381,13 @@ async function show(){
   const g=$('#grid');g.innerHTML='';cv=[];
   slides.forEach((s,i)=>{
     const d=document.createElement('div');d.className='card';d.dataset.i=i;
-    const k2=i===0?'label':'highlight',last=i===slides.length-1;
+    const last=i===slides.length-1,k2=i===0?'label':last?'source':'highlight';
+    const ph={label:'주제 키워드 (선택)',source:'출처 (예: 정부24)',highlight:'강조 숫자·키워드 (선택)'}[k2];
     d.innerHTML='<canvas></canvas><input data-k="title" placeholder="제목"><textarea data-k="body" rows="2" placeholder="본문"></textarea>'
-      +(last?'':`<input data-k="${k2}" placeholder="${i===0?'주제 키워드 (선택)':'강조 숫자·키워드 (선택)'}">`)
-      +'<button data-dl>이 카드 저장</button>';
+      +(i>0&&!last?'<textarea data-k="points" rows="3" placeholder="핵심 항목 (한 줄에 하나씩)"></textarea>':'')
+      +`<input data-k="${k2}" placeholder="${ph}">`+'<button data-dl>이 카드 저장</button>';
     ['title','body',k2].forEach(k=>{const e=d.querySelector(`[data-k="${k}"]`);if(e)e.value=s[k]||''});
+    const pe=d.querySelector('[data-k="points"]');if(pe)pe.value=(s.points||[]).join('\n');
     cv.push(d.querySelector('canvas'));g.append(d);
   });
   $('#out').hidden=false;redraw();thumbUI();msg('');
@@ -377,11 +395,11 @@ async function show(){
 }
 function dl(i){
   cv[i].toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);
-    a.download='cardnews_'+String(i+1).padStart(2,'0')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)});
+    a.download='cardnews_'+rlab()+'_'+String(i+1).padStart(2,'0')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)});
 }
 $('#grid').addEventListener('input',e=>{
   const d=e.target.closest('.card');if(!d||!e.target.dataset.k)return;
-  slides[+d.dataset.i][e.target.dataset.k]=e.target.value;draw(+d.dataset.i);
+  const kk=e.target.dataset.k,v=e.target.value;slides[+d.dataset.i][kk]=kk==='points'?v.split('\n'):v;draw(+d.dataset.i);
 });
 $('#grid').addEventListener('click',e=>{
   const d=e.target.closest('.card');if(d&&e.target.hasAttribute('data-dl'))dl(+d.dataset.i);
@@ -393,12 +411,12 @@ $('#all').onclick=async()=>{
     const z=new JSZip();
     for(let i=0;i<cv.length;i++){
       const blob=await new Promise(r=>cv[i].toBlob(r));
-      z.file('cardnews_'+String(i+1).padStart(2,'0')+'.png',blob);
+      z.file('cardnews_'+rlab()+'_'+String(i+1).padStart(2,'0')+'.png',blob);
     }
     z.file(thumbName()+'.png',await new Promise(r=>$('#tw').toBlob(r)));
     z.file(thumbName()+'_정사각형.png',await new Promise(r=>$('#ts').toBlob(r)));
     const out=await z.generateAsync({type:'blob'});
-    const a=document.createElement('a');a.href=URL.createObjectURL(out);a.download='cardnews.zip';a.click();
+    const a=document.createElement('a');a.href=URL.createObjectURL(out);a.download='cardnews_'+rlab()+'.zip';a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   }catch(e){for(let i=0;i<cv.length;i++){dl(i);await new Promise(r=>setTimeout(r,500))}}
   b.disabled=false;
@@ -411,7 +429,7 @@ $('#presets').addEventListener('click',e=>{
   preset=+b.dataset.p;save();presetButtons();if(slides.length)redraw();
 });
 presetButtons();
-['bname','burl'].forEach(id=>$('#'+id).addEventListener('input',()=>{save();if(slides.length){redraw();updHint()}}));
+['bname','burl','showurl'].forEach(id=>$('#'+id).addEventListener('input',()=>{save();if(slides.length){redraw();updHint()}}));
 $('#ratio').onchange=()=>{H=+$('#ratio').value;save();if(slides.length)redraw()};
 /* ---------- 게시글 문구 (제목 + 본문, 복사) ---------- */
 async function makePosts(){
@@ -430,15 +448,19 @@ $('#rp').onclick=()=>{if(slides.length&&last.key)makePosts()};
 const norm=t=>String(t||'').replace(/\\n/g,'\n').trim();
 const PLAT=[['instagram','인스타그램'],['facebook','페이스북 페이지'],['tiktok','틱톡'],['youtube','유튜브']];
 const fullUrl=()=>{const u=$('#burl').value.trim();return u?(/^https?:\/\//.test(u)?u:'https://'+u):''};
-const linkText=()=>fullUrl()?'자세한 내용은 아래 링크에서 확인하세요\n'+fullUrl():'';
-const hintText=()=>fullUrl()?'복사할 때 본문 끝에 블로그 주소가 자동으로 붙어요: '+fullUrl():'블로그 주소를 입력하면 복사할 때 본문 끝에 자동으로 붙어요.';
-const updHint=()=>document.querySelectorAll('#posts .lk').forEach(e=>e.textContent=hintText());
+const linkFor=k=>{const u=fullUrl();
+  if(k==='facebook'||k==='youtube')return u?'자세한 내용은 아래 링크에서 확인하세요\n'+u:'';
+  return '자세한 내용은 프로필 링크에서 확인하세요'};
+const hintFor=k=>(k==='facebook'||k==='youtube')
+  ?(fullUrl()?'복사할 때 본문 끝에 블로그 주소가 붙어요: '+fullUrl():'블로그 주소를 입력하면 복사할 때 본문 끝에 붙어요.')
+  :'주소 없이 "프로필 링크" 안내 문구만 붙어요. (프로필에 링크를 넣을 수 있을 때만 사용하세요)';
+const updHint=()=>document.querySelectorAll('#posts .pc').forEach(d=>{const e=d.querySelector('.lk');if(e)e.textContent=hintFor(d.dataset.k)});
 function showPosts(){
   const mid=slides.slice(1,-1).map(s=>s.title+(s.body?' - '+s.body:'')).join('\n');
   const box=$('#posts');box.innerHTML='';
   PLAT.forEach(([k,name])=>{
     const p=(posts&&posts[k])||{};
-    const d=document.createElement('div');d.className='pc';
+    const d=document.createElement('div');d.className='pc';d.dataset.k=k;
     d.innerHTML=`<h3>${name}</h3><input data-f="t" placeholder="제목"><textarea data-f="b" rows="12" placeholder="본문"></textarea><div class="lk"></div><div class="btns"><button data-c="t">제목 복사</button><button data-c="b">본문 복사</button><button data-c="a">제목+본문 복사</button></div>`;
     d.querySelector('[data-f="t"]').value=norm(p.title)||slides[0].title;
     d.querySelector('[data-f="b"]').value=norm(p.body)||mid;
@@ -452,7 +474,7 @@ async function doCopy(t,btn){
 }
 $('#posts').addEventListener('click',e=>{
   const b=e.target.closest('[data-c]');if(!b)return;
-  const d=b.closest('.pc'),t=d.querySelector('[data-f="t"]').value.trim(),body=d.querySelector('[data-f="b"]').value.trim(),l=linkText();
+  const d=b.closest('.pc'),t=d.querySelector('[data-f="t"]').value.trim(),body=d.querySelector('[data-f="b"]').value.trim(),l=linkFor(d.dataset.k);
   const full=body+(l?'\n\n'+l:'');
   doCopy(b.dataset.c==='t'?t:b.dataset.c==='b'?full:t+'\n\n'+full,b);
 });
